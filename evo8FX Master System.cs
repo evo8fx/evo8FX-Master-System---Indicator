@@ -41,7 +41,7 @@ namespace cAlgo
         [Parameter("Down color", DefaultValue = "Red")]
         public string DownColor { get; set; }
 
-        private Colors _upColor;        
+        private Colors _upColor;
         private Colors _downColor;
         private bool _incorrectColors;
         private Random _random = new Random();
@@ -57,10 +57,10 @@ namespace cAlgo
         [Parameter("Source")]
         public DataSeries Source { get; set; }
 
-        [Parameter("Periods", DefaultValue = 14)]
+        [Parameter("Periods", DefaultValue = 200)]
         public int Periods { get; set; }
 
-        [Output("EMA", Color = Colors.Indigo)]
+        [Output("EMA", Color = Colors.Indigo, Thickness = 2)]
         public IndicatorDataSeries Result { get; set; }
 
         private double exp;
@@ -105,6 +105,40 @@ namespace cAlgo
 
     /*-- END SCALPER SIGNAL ----------------------------------------------*/
 
+    /*-- START Bollinger Bands -------------------------------------------*/
+
+        [Parameter("- Show BollingerBands -------", DefaultValue = true)]
+        public bool enable_BollingerBands { get; set; }
+
+        private MovingAverage _bbmovingAverage;
+        private StandardDeviation _bbstandardDeviation;
+                
+        [Parameter("Period", DefaultValue = 20)]
+        public int Period { get; set; }
+
+        [Parameter("SD Weight Coef", DefaultValue = 2)]
+        public double K { get; set; }
+
+        [Parameter("MA Type", DefaultValue = MovingAverageType.Simple)]
+        public MovingAverageType MaType { get; set; }
+
+        [Parameter()]
+        public DataSeries Price { get; set; }
+
+        [Output("BB Main", Color = Colors.Blue)]
+        public IndicatorDataSeries bbMain { get; set; }
+
+        [Output("BB Upper", Color = Colors.Red)]
+        public IndicatorDataSeries bbUpper { get; set; }
+
+        [Output("BB Lower")]
+        public IndicatorDataSeries bbLower { get; set; }
+
+    /*-- END Bollinger Bands ---------------------------------------------*/
+
+        [Parameter("- Show DailyHighLow -------", DefaultValue = true)]
+        public bool enable_DailyHighLow { get; set; }
+
         protected override void Initialize()
         {
             // Initialize and create nested indicators ---------------------
@@ -133,6 +167,13 @@ namespace cAlgo
                 lastSignal = Signals.None;
                 lastTime = new DateTime();
                 lastTime = MarketSeries.OpenTime[MarketSeries.Close.Count - 1];
+            }
+
+            // BOLLINGER BANDS -------------------------------------------------
+            if (enable_BollingerBands)
+            {
+                _bbmovingAverage = Indicators.MovingAverage(Price, Period, MaType);
+                _bbstandardDeviation = Indicators.StandardDeviation(Price, Period, MaType);
             }
 
         }
@@ -165,48 +206,14 @@ namespace cAlgo
 
             // HeikenAshi Standard -----------------------------------------
             if (enable_HeikenAshi)
-            {
-                if (_incorrectColors)
-                {
-                    var errorColor = _random.Next(2) == 0 ? Colors.Red : Colors.White;
-                    ChartObjects.DrawText("Error", "Incorrect colors", StaticPosition.Center, errorColor);
-                    return;
-                }
-
-                var open = MarketSeries.Open[index];
-                var high = MarketSeries.High[index];
-                var low = MarketSeries.Low[index];
-                var close = MarketSeries.Close[index];
-
-                var haClose = (open + high + low + close) / 4;
-                double haOpen;
-                if (index > 0)
-                    haOpen = (_haOpen[index - 1] + _haClose[index - 1]) / 2;
-                else
-                    haOpen = (open + close) / 2;
-
-                var haHigh = Math.Max(Math.Max(high, haOpen), haClose);
-                var haLow = Math.Min(Math.Min(low, haOpen), haClose);
-
-                var color = haOpen > haClose ? _downColor : _upColor;
-                ChartObjects.DrawLine("candle" + index, index, haOpen, index, haClose, color, CandleWidth, LineStyle.Solid);
-                ChartObjects.DrawLine("line" + index, index, haHigh, index, haLow, color, 1, LineStyle.Solid);
-
-                _haOpen[index] = haOpen;
-                _haClose[index] = haClose;
-            }
+                HeikenAshi_Standard_Main(index);
 
             // MOVING AVERAGE -----------------------------------------
-            if (enable_EMA)
-            {
+            if (enable_EMA){
                 var previousValue = Result[index - 1];
-
-                if (double.IsNaN(previousValue))
-                {
+                if (double.IsNaN(previousValue)){
                     Result[index] = Source[index];
-                }
-                else
-                {
+                }else{
                     Result[index] = Source[index] * exp + previousValue * (1 - exp);
                 }
             }
@@ -214,35 +221,55 @@ namespace cAlgo
 
             // SCALPER SIGNAL --------------------------------------------
             if (enable_ScalperSignal)
+                SignalScalper_Main(index);
+            
+
+            // Daily HighLow ---------------------------------------------------------------------
+            if (enable_DailyHighLow)
+                DailyHighLow_Main(index);
+
+            // BOLLINGER BANDS -------------------------------------------------
+            if (enable_BollingerBands)
             {
-                if (!NewBar(index) || (index < 6))
-                    return;
-
-                ATR = Indicators.AverageTrueRange(14, MovingAverageType.Exponential);
-
-                double bs = BuySignal(index);
-                double ss = SellSignal(index);
-
-                if (bs > 0)
-                {
-                    BuyIndicator[index] = bs;
-                    SignalBarHigh[index - 3] = MarketSeries.High[index - 3];
-                    SignalBarLow[index - 3] = MarketSeries.Low[index - 3];
-                    ChartObjects.DrawLine("SignalBar" + (index - 3), index - 3, SignalBarHigh[index - 3], index - 3, SignalBarLow[index - 3], Colors.Gold, 3, LineStyle.Solid);
-                }
-                else if (ss > 0)
-                {
-                    SellIndicator[index] = ss;
-                    SignalBarHigh[index - 3] = MarketSeries.High[index - 3];
-                    SignalBarLow[index - 3] = MarketSeries.Low[index - 3];
-                    ChartObjects.DrawLine("SignalBar" + (index - 3), index - 3, SignalBarHigh[index - 3], index - 3, SignalBarLow[index - 3], Colors.Gold, 3, LineStyle.Solid);
-
-                }
+                bbMain[index] = _bbmovingAverage.Result[index];
+                bbUpper[index] = _bbmovingAverage.Result[index] + K * _bbstandardDeviation.Result[index];
+                bbLower[index] = _bbmovingAverage.Result[index] - K * _bbstandardDeviation.Result[index];
             }
 
         }
 
-        /* SCALPER SIGNAL FUNCTION ---------------------------------- */
+
+        //-----------------------------------------------------------------------------------------------
+        // SCALPER SIGNAL FUNCTION ----------------------------------------------------------------------
+        //-----------------------------------------------------------------------------------------------
+        private void SignalScalper_Main(int index)
+        {
+                        
+            if (!NewBar(index) || (index < 6))
+                return;
+
+            ATR = Indicators.AverageTrueRange(14, MovingAverageType.Exponential);
+
+            double bs = BuySignal(index);
+            double ss = SellSignal(index);
+
+            if (bs > 0)
+            {
+                BuyIndicator[index] = bs;
+                SignalBarHigh[index - 3] = MarketSeries.High[index - 3];
+                SignalBarLow[index - 3] = MarketSeries.Low[index - 3];
+                ChartObjects.DrawLine("SignalBar" + (index - 3), index - 3, SignalBarHigh[index - 3], index - 3, SignalBarLow[index - 3], Colors.Gold, 3, LineStyle.Solid);
+            }
+            else if (ss > 0)
+            {
+                SellIndicator[index] = ss;
+                SignalBarHigh[index - 3] = MarketSeries.High[index - 3];
+                SignalBarLow[index - 3] = MarketSeries.Low[index - 3];
+                ChartObjects.DrawLine("SignalBar" + (index - 3), index - 3, SignalBarHigh[index - 3], index - 3, SignalBarLow[index - 3], Colors.Gold, 3, LineStyle.Solid);
+
+            }
+            
+        }
         private double SellSignal(int index)
         {
             bool ok = true;
@@ -269,7 +296,6 @@ namespace cAlgo
 
             return (double.NaN);
         }
-
         private double BuySignal(int index)
         {
             bool ok = true;
@@ -296,7 +322,6 @@ namespace cAlgo
 
             return (double.NaN);
         }
-
         private bool NewBar(int index)
         {
             if (lastTime != MarketSeries.OpenTime[index])
@@ -307,7 +332,71 @@ namespace cAlgo
 
             return false;
         }
-        /* END SCALPER SIGNAL FUNCTION ---------------------------------- */
+        //-----------------------------------------------------------------------------------------------
+
+        //-----------------------------------------------------------------------------------------------
+        // DAILY HIGH LOW FUNCTION ----------------------------------------------------------------------
+        //-----------------------------------------------------------------------------------------------
+        private void HeikenAshi_Standard_Main(int index){
+            if (_incorrectColors)
+            {
+                var errorColor = _random.Next(2) == 0 ? Colors.Red : Colors.White;
+                ChartObjects.DrawText("Error", "Incorrect colors", StaticPosition.Center, errorColor);
+                return;
+            }
+
+            var open = MarketSeries.Open[index];
+            var high = MarketSeries.High[index];
+            var low = MarketSeries.Low[index];
+            var close = MarketSeries.Close[index];
+
+            var haClose = (open + high + low + close) / 4;
+            double haOpen;
+            if (index > 0)
+                haOpen = (_haOpen[index - 1] + _haClose[index - 1]) / 2;
+            else
+                haOpen = (open + close) / 2;
+
+            var haHigh = Math.Max(Math.Max(high, haOpen), haClose);
+            var haLow = Math.Min(Math.Min(low, haOpen), haClose);
+
+            //var color = haOpen > haClose ? _downColor : _upColor;
+            var haColor = haOpen > haClose ? _downColor : _upColor;
+                
+            ChartObjects.DrawLine("candle" + index, index, haOpen, index, haClose, haColor, CandleWidth, LineStyle.Solid);
+            ChartObjects.DrawLine("line" + index, index, haHigh, index, haLow, haColor, 1, LineStyle.Solid);
+
+            _haOpen[index] = haOpen;
+            _haClose[index] = haClose;
+        }
+        //-----------------------------------------------------------------------------------------------
+
+
+        //-----------------------------------------------------------------------------------------------
+        // DAILY HIGH LOW FUNCTION ----------------------------------------------------------------------
+        //-----------------------------------------------------------------------------------------------
+        private void DailyHighLow_Main(int index)
+        {
+            DateTime today = MarketSeries.OpenTime[index].Date;
+            DateTime tomorrow = today.AddDays(1);
+
+            double high = MarketSeries.High.LastValue;
+            double low = MarketSeries.Low.LastValue;
+
+            for (int i = MarketSeries.Close.Count - 1; i > 0; i--)
+            {
+                if (MarketSeries.OpenTime[i].Date < today)
+                    break;
+
+                high = Math.Max(high, MarketSeries.High[i]);
+                low = Math.Min(low, MarketSeries.Low[i]);
+            }
+
+            ChartObjects.DrawLine("high " + today, today, high, tomorrow, high, Colors.Pink);
+            ChartObjects.DrawLine("low " + today, today, low, tomorrow, low, Colors.Pink);
+        }
+        //-----------------------------------------------------------------------------------------------
+
 
         private void WritetoChart()
         {
