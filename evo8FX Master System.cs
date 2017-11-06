@@ -10,7 +10,8 @@ namespace cAlgo
     [Indicator(IsOverlay = true, TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
     public class evo8FXMasterSystem : Indicator
     {
-        /*-- START Summary ---------------------------------------*/
+    
+    /*-- START Summary ---------------------------------------*/
         private double SpreadinPips, totPosLoss_Amount;
         private string pairID;
         private bool debug_PrintValues;
@@ -20,17 +21,46 @@ namespace cAlgo
         [Parameter("RiskPercent", DefaultValue = 4.5)]
         public double RiskPercent { get; set; }
 
-        /*-- END Summary ---------------------------------------*/
+    /*-- END Summary ---------------------------------------*/
 
+    /*-- START HeikenAshi Standard ---------------------------------------*/
 
+        private IndicatorDataSeries _haOpen;
+        private IndicatorDataSeries _haClose;
+
+        [Parameter("Show HeikenAshi", DefaultValue = true)]
+        public bool enable_HeikenAshi { get; set; }
+
+        [Parameter("Candle width", DefaultValue = 5)]
+        public int CandleWidth { get; set; }
+
+        [Parameter("Up color", DefaultValue = "Blue")]
+        public string UpColor { get; set; }
+
+        [Parameter("Down color", DefaultValue = "Red")]
+        public string DownColor { get; set; }
+
+        private Colors _upColor;
+        private Colors _downColor;
+        private bool _incorrectColors;
+        private Random _random = new Random();
+
+    /*-- START HeikenAshi Standard ---------------------------------------*/
 
         protected override void Initialize()
         {
-            // Initialize and create nested indicators
+            // Initialize and create nested indicators ---------------------
             pairID = Symbol.Code;
             debug_PrintValues = false;
 
+            // HeikenAshi Standard -----------------------------------------
+            if (enable_HeikenAshi) { 
+                _haOpen = CreateDataSeries();
+                _haClose = CreateDataSeries();
 
+                if (!Enum.TryParse<Colors>(UpColor, out _upColor) || !Enum.TryParse<Colors>(DownColor, out _downColor))
+                    _incorrectColors = true;
+            }
         }
 
         public override void Calculate(int index)
@@ -59,7 +89,38 @@ namespace cAlgo
                 }
             }
 
+            // HeikenAshi Standard -----------------------------------------
+            if (enable_HeikenAshi)
+            {
+                if (_incorrectColors)
+                {
+                    var errorColor = _random.Next(2) == 0 ? Colors.Red : Colors.White;
+                    ChartObjects.DrawText("Error", "Incorrect colors", StaticPosition.Center, errorColor);
+                    return;
+                }
 
+                var open = MarketSeries.Open[index];
+                var high = MarketSeries.High[index];
+                var low = MarketSeries.Low[index];
+                var close = MarketSeries.Close[index];
+
+                var haClose = (open + high + low + close) / 4;
+                double haOpen;
+                if (index > 0)
+                    haOpen = (_haOpen[index - 1] + _haClose[index - 1]) / 2;
+                else
+                    haOpen = (open + close) / 2;
+
+                var haHigh = Math.Max(Math.Max(high, haOpen), haClose);
+                var haLow = Math.Min(Math.Min(low, haOpen), haClose);
+
+                var color = haOpen > haClose ? _downColor : _upColor;
+                ChartObjects.DrawLine("candle" + index, index, haOpen, index, haClose, color, CandleWidth, LineStyle.Solid);
+                ChartObjects.DrawLine("line" + index, index, haHigh, index, haLow, color, 1, LineStyle.Solid);
+
+                _haOpen[index] = haOpen;
+                _haClose[index] = haClose;
+            }
         }
 
 
