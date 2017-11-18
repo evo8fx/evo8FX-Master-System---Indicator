@@ -10,21 +10,27 @@ namespace cAlgo
     [Indicator(IsOverlay = true, TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
     public class evo8FXMasterSystem : Indicator
     {
-    
-    /*-- START Summary ---------------------------------------*/
+
+        /*-- START Summary ---------------------------------------*/
         private double SpreadinPips, totPosLoss_Amount;
         private string pairID;
         private bool debug_PrintValues;
         private int totPositions;
         private long totPosVol;
 
-        [Parameter("RiskPercent", DefaultValue = 10)]
-        public double RiskPercent { get; set; }
+        [Parameter("Intraday Risk", DefaultValue = 3.5)]
+        public double S1_RiskPercent { get; set; }
 
-    /*-- END Summary ---------------------------------------*/
+        [Parameter("Sniper Risk", DefaultValue = 10)]
+        public double S2_RiskPercent { get; set; }
+
+        [Parameter("Investment Risk", DefaultValue = 2.5)]
+        public double S3_RiskPercent { get; set; }
+
+        /*-- END Summary ---------------------------------------*/
 
 
-    /*-- START HeikenAshi Standard ---------------------------------------*/
+        /*-- START HeikenAshi Standard ---------------------------------------*/
 
         private IndicatorDataSeries _haOpen;
         private IndicatorDataSeries _haClose;
@@ -46,30 +52,30 @@ namespace cAlgo
         private bool _incorrectColors;
         private Random _random = new Random();
 
-    /*-- START HeikenAshi Standard ---------------------------------------*/
+        /*-- START HeikenAshi Standard ---------------------------------------*/
 
 
-    /*-- START Moving Average --------------------------------------------*/
+        /*-- START Moving Average --------------------------------------------*/
 
         [Parameter("- Show EMA --------------", DefaultValue = true)]
         public bool enable_EMA { get; set; }
-        
+
         [Parameter("Source")]
         public DataSeries Source { get; set; }
 
         [Parameter("Periods", DefaultValue = 200)]
         public int Periods { get; set; }
 
-        [Output("EMA", Color = Colors.Indigo, Thickness = 2)]
+        [Output("EMA", Color = Colors.SlateBlue, Thickness = 2)]
         public IndicatorDataSeries Result { get; set; }
 
         private double exp;
 
-    /*-- END   Moving Average --------------------------------------------*/
+        /*-- END   Moving Average --------------------------------------------*/
 
 
-    /*-- START SCALPER SIGNAL --------------------------------------------*/
-        
+        /*-- START SCALPER SIGNAL --------------------------------------------*/
+
         [Parameter("- Show Scalper Signal -------", DefaultValue = true)]
         public bool enable_ScalperSignal { get; set; }
 
@@ -103,20 +109,20 @@ namespace cAlgo
         private DateTime lastTime;
         private AverageTrueRange ATR;
 
-    /*-- END SCALPER SIGNAL ----------------------------------------------*/
+        /*-- END SCALPER SIGNAL ----------------------------------------------*/
 
-    /*-- START Bollinger Bands -------------------------------------------*/
+        /*-- START Bollinger Bands -------------------------------------------*/
 
         [Parameter("- Show BollingerBands -------", DefaultValue = true)]
         public bool enable_BollingerBands { get; set; }
 
         private MovingAverage _bbmovingAverage;
         private StandardDeviation _bbstandardDeviation;
-                
-        [Parameter("Period", DefaultValue = 20)]
+
+        [Parameter("Period", DefaultValue = 14)]
         public int Period { get; set; }
 
-        [Parameter("SD Weight Coef", DefaultValue = 2)]
+        [Parameter("SD Weight Coef", DefaultValue = 2.3)]
         public double K { get; set; }
 
         [Parameter("MA Type", DefaultValue = MovingAverageType.Simple)]
@@ -125,16 +131,16 @@ namespace cAlgo
         [Parameter()]
         public DataSeries Price { get; set; }
 
-        [Output("BB Main", Color = Colors.Blue)]
+        [Output("BB Main", Color = Colors.DarkSlateGray, LineStyle = LineStyle.Solid)]
         public IndicatorDataSeries bbMain { get; set; }
 
-        [Output("BB Upper", Color = Colors.Red)]
+        [Output("BB Upper", Color = Colors.SlateGray, LineStyle = LineStyle.Solid)]
         public IndicatorDataSeries bbUpper { get; set; }
 
-        [Output("BB Lower")]
+        [Output("BB Lower", Color = Colors.SlateGray, LineStyle = LineStyle.Solid)]
         public IndicatorDataSeries bbLower { get; set; }
 
-    /*-- END Bollinger Bands ---------------------------------------------*/
+        /*-- END Bollinger Bands ---------------------------------------------*/
 
         [Parameter("- Show DailyHighLow -------", DefaultValue = true)]
         public bool enable_DailyHighLow { get; set; }
@@ -146,7 +152,8 @@ namespace cAlgo
             debug_PrintValues = false;
 
             // HeikenAshi Standard -----------------------------------------
-            if (enable_HeikenAshi) { 
+            if (enable_HeikenAshi)
+            {
                 _haOpen = CreateDataSeries();
                 _haClose = CreateDataSeries();
 
@@ -155,12 +162,14 @@ namespace cAlgo
             }
 
             // MOVING AVERAGE -----------------------------------------
-            if (enable_EMA) {
+            if (enable_EMA)
+            {
                 exp = 2.0 / (Periods + 1);
             }
-            
+
             // SCALPER SIGNAL -----------------------------------------------
-            if (enable_ScalperSignal) { 
+            if (enable_ScalperSignal)
+            {
                 if (!Enum.TryParse<Colors>(SignalBarColor, out signalBarColor))
                     signalBarColor = Colors.Gold;
 
@@ -209,11 +218,15 @@ namespace cAlgo
                 HeikenAshi_Standard_Main(index);
 
             // MOVING AVERAGE -----------------------------------------
-            if (enable_EMA){
+            if (enable_EMA)
+            {
                 var previousValue = Result[index - 1];
-                if (double.IsNaN(previousValue)){
+                if (double.IsNaN(previousValue))
+                {
                     Result[index] = Source[index];
-                }else{
+                }
+                else
+                {
                     Result[index] = Source[index] * exp + previousValue * (1 - exp);
                 }
             }
@@ -222,7 +235,7 @@ namespace cAlgo
             // SCALPER SIGNAL --------------------------------------------
             if (enable_ScalperSignal)
                 SignalScalper_Main(index);
-            
+
 
             // Daily HighLow ---------------------------------------------------------------------
             if (enable_DailyHighLow)
@@ -244,7 +257,7 @@ namespace cAlgo
         //-----------------------------------------------------------------------------------------------
         private void SignalScalper_Main(int index)
         {
-                        
+
             if (!NewBar(index) || (index < 6))
                 return;
 
@@ -268,7 +281,7 @@ namespace cAlgo
                 ChartObjects.DrawLine("SignalBar" + (index - 3), index - 3, SignalBarHigh[index - 3], index - 3, SignalBarLow[index - 3], Colors.Gold, 3, LineStyle.Solid);
 
             }
-            
+
         }
         private double SellSignal(int index)
         {
@@ -337,7 +350,8 @@ namespace cAlgo
         //-----------------------------------------------------------------------------------------------
         // DAILY HIGH LOW FUNCTION ----------------------------------------------------------------------
         //-----------------------------------------------------------------------------------------------
-        private void HeikenAshi_Standard_Main(int index){
+        private void HeikenAshi_Standard_Main(int index)
+        {
             if (_incorrectColors)
             {
                 var errorColor = _random.Next(2) == 0 ? Colors.Red : Colors.White;
@@ -362,7 +376,7 @@ namespace cAlgo
 
             //var color = haOpen > haClose ? _downColor : _upColor;
             var haColor = haOpen > haClose ? _downColor : _upColor;
-                
+
             ChartObjects.DrawLine("candle" + index, index, haOpen, index, haClose, haColor, CandleWidth, LineStyle.Solid);
             ChartObjects.DrawLine("line" + index, index, haHigh, index, haLow, haColor, 1, LineStyle.Solid);
 
@@ -402,27 +416,44 @@ namespace cAlgo
         {
 
             // -- TOP LEFT OUTPUT
-            string chartTL = "Spread: " + SpreadinPips + " pips";
-            chartTL = chartTL + "\nTrade Risk Pct: " + RiskPercent + "%";
-            chartTL = chartTL + "\nTrade Risk Amt: " + String.Format("{0:C}", Account.Balance * (RiskPercent * 0.01));
-
-            chartTL = chartTL + "\n\n" + pairID + " POSITIONS";
-            chartTL = chartTL + "\n - Pos: " + totPositions;
-            chartTL = chartTL + "\n - Vol: " + totPosVol;
-            chartTL = chartTL + "\n - Qty: " + Symbol.VolumeToQuantity(totPosVol) + " lots";
-            ChartObjects.DrawText("TopLeft", chartTL, StaticPosition.TopLeft, Colors.LightGray);
+            string chartTL = "";
+            chartTL += "" + pairID + " POSITIONS";
+            chartTL += "\n - Pos: " + totPositions;
+            chartTL += "\n - Vol: " + totPosVol;
+            chartTL += "\n - Qty: " + Symbol.VolumeToQuantity(totPosVol) + " lots\n\n\n";
+            ChartObjects.DrawText("TopLeft", chartTL, StaticPosition.BottomRight);
 
             // -- TOP CENTER OUTPUT
-            string chartTC = "";
-            ChartObjects.DrawText("TopCenter", chartTC, StaticPosition.TopCenter);
+            string chartTC = "Spread: " + SpreadinPips + " pips";
+            ChartObjects.DrawText("TopCenter", chartTC.PadRight(5), StaticPosition.BottomRight, Colors.MediumPurple);
 
             // -- TOP RIGHT OUTPUT
-            string chartTR = "";
-            chartTR = chartTR + "Balance: " + String.Format("{0:C}", Account.Balance, 2);
-            chartTR = chartTR + "\nEquity: " + String.Format("{0:C}", Account.Equity, 2);
-            chartTR = chartTR + "\nDraw Down: " + Math.Round(((Account.Equity / Account.Balance) * 100) - 100, 2) + "%";
-            chartTR = chartTR + "\nMargin Level: " + Math.Round(Account.MarginLevel.Value, 2) + "%";
-            ChartObjects.DrawText("TopRight", chartTR.PadRight(5), StaticPosition.TopRight, Colors.LightGray);
+            double dd = Math.Round(((Account.Equity / Account.Balance) * 100) - 100, 2);
+            Colors dd_color = Colors.Green;
+            if (dd < -15){
+                dd_color = Colors.Red;
+            }else if (dd < -10){
+                dd_color = Colors.OrangeRed;
+            }else if (dd < 0) {
+                dd_color = Colors.Orange;
+            }
+                
+
+            string chartTR = "Draw Down: " + dd + "%";
+            ChartObjects.DrawText("DD", chartTR.PadRight(5), StaticPosition.TopRight, dd_color);
+
+            string cR1 = "\n\n-----------------------------\n";
+            cR1 += "Intraday Risk: " + S1_RiskPercent + "%";
+            cR1 += "\n" + String.Format("{0:C}", Account.Balance * (S1_RiskPercent * 0.01));
+            ChartObjects.DrawText("TR1", cR1.PadRight(5), StaticPosition.TopRight, Colors.Goldenrod);
+
+            string cR2 = "\n\n\n\n\n-----------------------------\nSniper Risk: " + S2_RiskPercent + "%";
+            cR2 += "\n" + String.Format("{0:C}", Account.Balance * (S2_RiskPercent * 0.01));
+            ChartObjects.DrawText("TR2", cR2.PadRight(5), StaticPosition.TopRight, Colors.Orange);
+
+            string cR3 = "\n\n\n\n\n\n\n\n-----------------------------\nInvest Risk: " + S3_RiskPercent + "%";
+            cR3 += "\n" + String.Format("{0:C}", Account.Balance * (S3_RiskPercent * 0.01));
+            ChartObjects.DrawText("TR3", cR3.PadRight(5), StaticPosition.TopRight);
 
         }
     }
