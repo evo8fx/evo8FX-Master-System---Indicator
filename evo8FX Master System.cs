@@ -1,8 +1,19 @@
 ﻿using System;
+using System.Data;
+using System.Management;
+using System.Linq;
+using System.IO;
 using cAlgo.API;
 using cAlgo.API.Internals;
 using cAlgo.API.Indicators;
 using cAlgo.Indicators;
+
+// database connection
+/*
+using MySql.Data.MySqlClient;
+using System.Collections.Generic;
+using System.Diagnostics;
+*/
 
 namespace cAlgo
 {
@@ -10,6 +21,26 @@ namespace cAlgo
     [Indicator(IsOverlay = true, TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
     public class evo8FXMasterSystem : Indicator
     {
+        /*-- START Signal Variables ------------------------------*/
+        /* Standard signal settings
+         *  Buy: 1
+         *  Sell: 0
+         *  No Trade: -1
+        */
+        public int signal_haDir { get; set; }
+        public int signal_scalp { get; set; }
+        public int signal_EMA { get; set; }
+        public int signal_BB { get; set; }
+        /*
+        public int signal_TDI_OSC { get; set; }
+        public int signal_TDI_Main { get; set; }
+        public int signal_TDI_Level { get; set; }
+        public int signal_TDI_Force { get; set; }
+        */
+        /*-- END Signal Variables --------------------------------*/
+
+
+
 
         /*-- START Summary ---------------------------------------*/
         private double SpreadinPips, totPosLoss_Amount;
@@ -17,6 +48,7 @@ namespace cAlgo
         private bool debug_PrintValues;
         private int totPositions;
         private long totPosVol;
+        private double totPosGain;
 
         [Parameter("Intraday Risk", DefaultValue = 3.5)]
         public double S1_RiskPercent { get; set; }
@@ -35,6 +67,8 @@ namespace cAlgo
         private IndicatorDataSeries _haOpen;
         private IndicatorDataSeries _haClose;
 
+        private double haOpen, haClose, haHigh, haLow;
+
         [Parameter("- Show HeikenAshi ---------", DefaultValue = true)]
         public bool enable_HeikenAshi { get; set; }
 
@@ -52,7 +86,7 @@ namespace cAlgo
         private bool _incorrectColors;
         private Random _random = new Random();
 
-        /*-- START HeikenAshi Standard ---------------------------------------*/
+        /*-- END HeikenAshi Standard -----------------------------------------*/
 
 
         /*-- START Moving Average --------------------------------------------*/
@@ -71,7 +105,7 @@ namespace cAlgo
 
         private double exp;
 
-        /*-- END   Moving Average --------------------------------------------*/
+        /*-- END Moving Average ----------------------------------------------*/
 
 
         /*-- START SCALPER SIGNAL --------------------------------------------*/
@@ -145,7 +179,15 @@ namespace cAlgo
         [Parameter("- Show DailyHighLow -------", DefaultValue = true)]
         public bool enable_DailyHighLow { get; set; }
 
-        protected override void Initialize()
+        // - DATA OUTPUT SETTINGS -----------------------------------------------
+/*
+        const string dateFormat = "yyyy-MM-dd HH:mm:ss";
+        private string maxDate = "";
+        private bool isFirstBar = true;
+        private MySqlConnection conn;
+        */
+
+                protected override void Initialize()
         {
             // Initialize and create nested indicators ---------------------
             pairID = Symbol.Code;
@@ -185,6 +227,8 @@ namespace cAlgo
                 _bbstandardDeviation = Indicators.StandardDeviation(Price, Period, MaType);
             }
 
+            // START LOGGIN ENGINE --------------------------------------------
+            //initialize_logging();
         }
 
         public override void Calculate(int index)
@@ -199,6 +243,7 @@ namespace cAlgo
             totPosVol = 0;
             totPositions = 0;
             totPosLoss_Amount = 0;
+            totPosGain = 0;
 
 
             for (int i = 0; i < Positions.Count; i++)
@@ -208,16 +253,19 @@ namespace cAlgo
                     totPosVol = totPosVol + Positions[i].Volume;
                     totPositions++;
 
+                    // total up gains
+                    totPosGain += Positions[i].GrossProfit;
+
                     // get value of loss if StopLoss it hit
-                    //totPosLoss_Amount = totPosLoss_Amount + Positions[i].StopLoss.
+                    //totPosLoss_Amount = totPosLoss_Amount + Positions[i].StopLoss.to;
                 }
             }
 
-            // HeikenAshi Standard -----------------------------------------
+            // HeikenAshi Standard ---------------------------------------------------------------------
             if (enable_HeikenAshi)
                 HeikenAshi_Standard_Main(index);
 
-            // MOVING AVERAGE -----------------------------------------
+            // MOVING AVERAGE --------------------------------------------------------------------------
             if (enable_EMA)
             {
                 var previousValue = Result[index - 1];
@@ -232,22 +280,25 @@ namespace cAlgo
             }
 
 
-            // SCALPER SIGNAL --------------------------------------------
+            // SCALPER SIGNAL ---------------------------------------------------------------------------
             if (enable_ScalperSignal)
                 SignalScalper_Main(index);
 
 
-            // Daily HighLow ---------------------------------------------------------------------
+            // Daily HighLow ----------------------------------------------------------------------------
             if (enable_DailyHighLow)
                 DailyHighLow_Main(index);
 
-            // BOLLINGER BANDS -------------------------------------------------
+            // BOLLINGER BANDS --------------------------------------------------------------------------
             if (enable_BollingerBands)
             {
                 bbMain[index] = _bbmovingAverage.Result[index];
                 bbUpper[index] = _bbmovingAverage.Result[index] + K * _bbstandardDeviation.Result[index];
                 bbLower[index] = _bbmovingAverage.Result[index] - K * _bbstandardDeviation.Result[index];
             }
+
+            // LOG DATA ---------------------------------------------------------------------------------
+            //log_bar(index);
 
         }
 
@@ -364,15 +415,15 @@ namespace cAlgo
             var low = MarketSeries.Low[index];
             var close = MarketSeries.Close[index];
 
-            var haClose = (open + high + low + close) / 4;
-            double haOpen;
+            haClose = (open + high + low + close) / 4;
+
             if (index > 0)
                 haOpen = (_haOpen[index - 1] + _haClose[index - 1]) / 2;
             else
                 haOpen = (open + close) / 2;
 
-            var haHigh = Math.Max(Math.Max(high, haOpen), haClose);
-            var haLow = Math.Min(Math.Min(low, haOpen), haClose);
+            haHigh = Math.Max(Math.Max(high, haOpen), haClose);
+            haLow = Math.Min(Math.Min(low, haOpen), haClose);
 
             //var color = haOpen > haClose ? _downColor : _upColor;
             var haColor = haOpen > haClose ? _downColor : _upColor;
@@ -412,15 +463,32 @@ namespace cAlgo
         //-----------------------------------------------------------------------------------------------
 
 
+        //-----------------------------------------------------------------------------------------------
+        // Helper functions        ----------------------------------------------------------------------
+        //-----------------------------------------------------------------------------------------------
+
+        protected int convertBool(bool bVal)
+        {
+            if (bVal == true)
+            {
+                return 1;
+            }
+            else
+            {
+                return 0;
+            }
+        }
+
         private void WritetoChart()
         {
 
             // -- TOP LEFT OUTPUT
             string chartTL = "";
             chartTL += "" + pairID + " POSITIONS";
-            chartTL += "\n - Pos: " + totPositions;
-            chartTL += "\n - Vol: " + totPosVol;
-            chartTL += "\n - Qty: " + Symbol.VolumeToQuantity(totPosVol) + " lots\n\n\n";
+            chartTL += "\n Pos: " + totPositions;
+            chartTL += "\n Vol: " + totPosVol;
+            chartTL += "\n Qty: " + Symbol.VolumeToQuantity(totPosVol) + " lots";
+            chartTL += "\n Gain: " + Math.Round((totPosGain/ Account.Balance) * 100,2) + "% \n\n\n";
             ChartObjects.DrawText("TopLeft", chartTL, StaticPosition.BottomRight);
 
             // -- TOP CENTER OUTPUT
@@ -430,14 +498,19 @@ namespace cAlgo
             // -- TOP RIGHT OUTPUT
             double dd = Math.Round(((Account.Equity / Account.Balance) * 100) - 100, 2);
             Colors dd_color = Colors.Green;
-            if (dd < -15){
+            if (dd < -15)
+            {
                 dd_color = Colors.Red;
-            }else if (dd < -10){
+            }
+            else if (dd < -10)
+            {
                 dd_color = Colors.OrangeRed;
-            }else if (dd < 0) {
+            }
+            else if (dd < 0)
+            {
                 dd_color = Colors.Orange;
             }
-                
+
 
             string chartTR = "Draw Down: " + dd + "%";
             ChartObjects.DrawText("DD", chartTR.PadRight(5), StaticPosition.TopRight, dd_color);
